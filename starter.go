@@ -15,6 +15,7 @@ type Starter struct {
 	cancel   context.CancelFunc
 	services []Service
 	fail     bool
+	err      error
 }
 
 func New() (*Starter, error) {
@@ -46,6 +47,24 @@ func (s *Starter) Init(ctx *cli.Context, components ...Component) *Starter {
 		}
 	}
 	return s
+}
+
+type Func func(ctx *cli.Context, parent context.Context) error
+
+func (s *Starter) Run(ctx *cli.Context, f Func) *Starter {
+	if s.fail {
+		return s
+	}
+	err := f(ctx, s.context)
+	if err != nil {
+		s.fail = true
+		s.err = err
+	}
+	return s
+}
+
+func (s *Starter) Error() error {
+	return s.err
 }
 
 func (s *Starter) RunServices(ctx *cli.Context, services ...Service) *Starter {
