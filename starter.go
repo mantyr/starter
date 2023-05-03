@@ -2,6 +2,7 @@ package starter
 
 import (
 	"context"
+	"errors"
 	"log"
 	"os"
 	"os/signal"
@@ -45,6 +46,9 @@ func (s *Starter) Init(ctx *cli.Context, components ...Component) *Starter {
 		} else {
 			log.Printf("init %s is OK", component.Name())
 		}
+	}
+	if s.fail {
+		s.err = errors.New("application initialization error")
 	}
 	return s
 }
@@ -129,6 +133,10 @@ func (s *Starter) Done() <-chan struct{} {
 }
 
 func (s *Starter) Wait(ctx *cli.Context) {
+	if s.fail {
+		log.Println(s.err.Error())
+		return
+	}
 	<-s.context.Done()
 	s.GracefulStop(ctx)
 }
