@@ -22,6 +22,7 @@ import (
 type Component interface {
 	Name() string
 	Init(ctx *cli.Context) error
+	Destroy(ctx *cli.Context) error
 }
 
 type Service interface {
@@ -80,7 +81,7 @@ func main() {
 		db,
 		s1,
 		s2,
-		starter.NewComponent("service3", func() error{return nil})
+		starter.NewComponent("service3").SetInit(func() error{return nil}).SetDestroy(func() error{return nil}),
 	).RunServices(
 		ctx,
 		s1,

@@ -7,24 +7,48 @@ import (
 type Component interface {
 	Name() string
 	Init(ctx *cli.Context) error
+	Destroy(ctx *cli.Context) error
 }
 
-type component struct {
-	name string
-	f    func(ctx *cli.Context) error
+type CompositeComponent struct {
+	name    string
+	init    InitFunc
+	destroy DestroyFunc
 }
 
-func NewComponent(name string, f func(ctx *cli.Context) error) Component {
-	return &component{
+type InitFunc func(ctx *cli.Context) error
+type DestroyFunc func(ctx *cli.Context) error
+
+func NewComponent(name string) *CompositeComponent {
+	return &CompositeComponent{
 		name: name,
-		f:    f,
 	}
 }
 
-func (c *component) Name() string {
+func (c *CompositeComponent) SetInit(f InitFunc) *CompositeComponent {
+	c.init = f
+	return c
+}
+
+func (c *CompositeComponent) SetDestroy(f DestroyFunc) *CompositeComponent {
+	c.destroy = f
+	return c
+}
+
+func (c *CompositeComponent) Name() string {
 	return c.name
 }
 
-func (c *component) Init(ctx *cli.Context) error {
-	return c.f(ctx)
+func (c *CompositeComponent) Init(ctx *cli.Context) error {
+	if c.init == nil {
+		return nil
+	}
+	return c.init(ctx)
+}
+
+func (c *CompositeComponent) Destroy(ctx *cli.Context) error {
+	if c.destroy == nil {
+		return nil
+	}
+	return c.destroy(ctx)
 }

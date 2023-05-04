@@ -11,26 +11,53 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-type Starter struct {
-	context  context.Context
-	cancel   context.CancelFunc
-	services []Service
-	fail     bool
-	err      error
+type Starter interface {
+	// Signals
+	Signals(signals ...os.Signal) Starter
+
+	// Init ...
+	Init(ctx *cli.Context, components ...Component) Starter
+
+	// Run ...
+	Run(ctx *cli.Context, f Func) Starter
+
+	// RunServices ...
+	RunServices(ctx *cli.Context, services ...Service) Starter
+
+	// Done
+	Done() <-chan struct{}
+
+	// Wait ...
+	Wait(ctx *cli.Context) Starter
+
+	// Error return pipeline error
+	Error() error
 }
 
-func New() (*Starter, error) {
+type Func func(ctx *cli.Context, parent context.Context) error
+
+type starter struct {
+	context    context.Context
+	cancel     context.CancelFunc
+	components []Component
+	services   []Service
+	fail       bool
+	err        error
+}
+
+func New() (Starter, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Starter{
+	return &starter{
 		context: ctx,
 		cancel:  cancel,
 	}, nil
 }
 
-func (s *Starter) Init(ctx *cli.Context, components ...Component) *Starter {
+func (s *starter) Init(ctx *cli.Context, components ...Component) Starter {
 	if s.fail {
 		return s
 	}
+	s.components = append(s.components, components...)
 	for _, component := range components {
 		select {
 		case <-s.context.Done():
@@ -53,9 +80,22 @@ func (s *Starter) Init(ctx *cli.Context, components ...Component) *Starter {
 	return s
 }
 
-type Func func(ctx *cli.Context, parent context.Context) error
+func (s *starter) stopComponents(ctx *cli.Context) {
+	for i := len(s.components); i > 0; i-- {
+		component := s.components[i-1]
+		if component == nil {
+			continue
+		}
+		err := component.Destroy(ctx)
+		if err != nil {
+			log.Printf("destroy %s is error: %v", component.Name(), err)
+		} else {
+			log.Printf("destroy %s is OK", component.Name())
+		}
+	}
+}
 
-func (s *Starter) Run(ctx *cli.Context, f Func) *Starter {
+func (s *starter) Run(ctx *cli.Context, f Func) Starter {
 	if s.fail {
 		return s
 	}
@@ -67,11 +107,11 @@ func (s *Starter) Run(ctx *cli.Context, f Func) *Starter {
 	return s
 }
 
-func (s *Starter) Error() error {
+func (s *starter) Error() error {
 	return s.err
 }
 
-func (s *Starter) RunServices(ctx *cli.Context, services ...Service) *Starter {
+func (s *starter) RunServices(ctx *cli.Context, services ...Service) Starter {
 	if s.fail {
 		return s
 	}
@@ -89,7 +129,7 @@ func (s *Starter) RunServices(ctx *cli.Context, services ...Service) *Starter {
 	return s
 }
 
-func (s *Starter) start(ctx *cli.Context, service Service) {
+func (s *starter) start(ctx *cli.Context, service Service) {
 	defer s.cancel()
 	err := service.Start(ctx)
 	if err != nil {
@@ -99,7 +139,7 @@ func (s *Starter) start(ctx *cli.Context, service Service) {
 	}
 }
 
-func (s *Starter) Signals(signals ...os.Signal) *Starter {
+func (s *starter) Signals(signals ...os.Signal) Starter {
 	if s.fail {
 		return s
 	}
@@ -107,7 +147,7 @@ func (s *Starter) Signals(signals ...os.Signal) *Starter {
 	return s
 }
 
-func (s *Starter) signals(signals ...os.Signal) {
+func (s *starter) signals(signals ...os.Signal) {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(
 		sigs,
@@ -128,20 +168,22 @@ func (s *Starter) signals(signals ...os.Signal) {
 	}
 }
 
-func (s *Starter) Done() <-chan struct{} {
+func (s *starter) Done() <-chan struct{} {
 	return s.context.Done()
 }
 
-func (s *Starter) Wait(ctx *cli.Context) {
+func (s *starter) Wait(ctx *cli.Context) Starter {
 	if s.fail {
 		log.Println(s.err.Error())
-		return
+		return s
 	}
 	<-s.context.Done()
 	s.GracefulStop(ctx)
+	s.stopComponents(ctx)
+	return s
 }
 
-func (s *Starter) GracefulStop(conf *cli.Context) {
+func (s *starter) GracefulStop(conf *cli.Context) {
 	timeout := conf.Duration(ServicesGracefulstopTimeout)
 	log.Printf("Graceful shutdown ...")
 	log.Printf("  - %s: %v", ServicesGracefulstopTimeout, timeout)
@@ -151,7 +193,7 @@ func (s *Starter) GracefulStop(conf *cli.Context) {
 	<-ctx.Done()
 }
 
-func (s *Starter) gracefulStop(conf *cli.Context, cancel context.CancelFunc) {
+func (s *starter) gracefulStop(conf *cli.Context, cancel context.CancelFunc) {
 	wg := &sync.WaitGroup{}
 	for _, service := range s.services {
 		wg.Add(1)
@@ -161,7 +203,7 @@ func (s *Starter) gracefulStop(conf *cli.Context, cancel context.CancelFunc) {
 	cancel()
 }
 
-func (s *Starter) stopService(conf *cli.Context, wg *sync.WaitGroup, service Service) {
+func (s *starter) stopService(conf *cli.Context, wg *sync.WaitGroup, service Service) {
 	defer wg.Done()
 	err := service.Stop(conf)
 	if err != nil {
