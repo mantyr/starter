@@ -12,6 +12,9 @@ import (
 )
 
 type Starter interface {
+	// Logger set customer logger
+	Logger(l Logger) Starter
+
 	// Signals
 	Signals(signals ...os.Signal) Starter
 
