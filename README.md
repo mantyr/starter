@@ -38,6 +38,7 @@ type Service interface {
 - [x] Init functions
 - [x] Components
 - [x] Service startup
+- [x] Customer logger
 
 
 ## Installation

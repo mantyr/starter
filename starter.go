@@ -43,6 +43,7 @@ type starter struct {
 	services   []Service
 	fail       bool
 	err        error
+	logger     Logger
 }
 
 func New() (Starter, error) {
@@ -50,7 +51,21 @@ func New() (Starter, error) {
 	return &starter{
 		context: ctx,
 		cancel:  cancel,
+		logger:  log.Default(),
 	}, nil
+}
+
+func (s *starter) Logger(l Logger) Starter {
+	if s.fail {
+		return s
+	}
+	if l == nil {
+		s.err = errors.New("empty logger")
+		s.fail = true
+		return s
+	}
+	s.logger = l
+	return s
 }
 
 func (s *starter) Init(ctx *cli.Context, components ...Component) Starter {
@@ -61,17 +76,17 @@ func (s *starter) Init(ctx *cli.Context, components ...Component) Starter {
 	for _, component := range components {
 		select {
 		case <-s.context.Done():
-			log.Println("shutdown ...")
+			s.logger.Println("shutdown ...")
 			s.fail = true
 			return s
 		default:
 		}
 		err := component.Init(ctx)
 		if err != nil {
-			log.Printf("init %s is error: %v", component.Name(), err)
+			s.logger.Printf("init %s is error: %v", component.Name(), err)
 			s.fail = true
 		} else {
-			log.Printf("init %s is OK", component.Name())
+			s.logger.Printf("init %s is OK", component.Name())
 		}
 	}
 	if s.fail {
@@ -88,9 +103,9 @@ func (s *starter) stopComponents(ctx *cli.Context) {
 		}
 		err := component.Destroy(ctx)
 		if err != nil {
-			log.Printf("destroy %s is error: %v", component.Name(), err)
+			s.logger.Printf("destroy %s is error: %v", component.Name(), err)
 		} else {
-			log.Printf("destroy %s is OK", component.Name())
+			s.logger.Printf("destroy %s is OK", component.Name())
 		}
 	}
 }
@@ -119,7 +134,7 @@ func (s *starter) RunServices(ctx *cli.Context, services ...Service) Starter {
 	for _, service := range services {
 		select {
 		case <-s.context.Done():
-			log.Println("shutdown ...")
+			s.logger.Println("shutdown ...")
 			s.fail = true
 			return s
 		default:
@@ -133,9 +148,9 @@ func (s *starter) start(ctx *cli.Context, service Service) {
 	defer s.cancel()
 	err := service.Start(ctx)
 	if err != nil {
-		log.Printf("service %s is done: %v", service.Name(), err)
+		s.logger.Printf("service %s is done: %v", service.Name(), err)
 	} else {
-		log.Printf("service %s is done", service.Name())
+		s.logger.Printf("service %s is done", service.Name())
 	}
 }
 
@@ -174,7 +189,7 @@ func (s *starter) Done() <-chan struct{} {
 
 func (s *starter) Wait(ctx *cli.Context) Starter {
 	if s.fail {
-		log.Println(s.err.Error())
+		s.logger.Println(s.err.Error())
 		return s
 	}
 	<-s.context.Done()
@@ -185,8 +200,8 @@ func (s *starter) Wait(ctx *cli.Context) Starter {
 
 func (s *starter) GracefulStop(conf *cli.Context) {
 	timeout := conf.Duration(ServicesGracefulstopTimeout)
-	log.Printf("Graceful shutdown ...")
-	log.Printf("  - %s: %v", ServicesGracefulstopTimeout, timeout)
+	s.logger.Printf("Graceful shutdown ...")
+	s.logger.Printf("  - %s: %v", ServicesGracefulstopTimeout, timeout)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	go s.gracefulStop(conf, cancel)
@@ -207,8 +222,8 @@ func (s *starter) stopService(conf *cli.Context, wg *sync.WaitGroup, service Ser
 	defer wg.Done()
 	err := service.Stop(conf)
 	if err != nil {
-		log.Printf("service %s is stopped: %v", service.Name(), err)
+		s.logger.Printf("service %s is stopped: %v", service.Name(), err)
 	} else {
-		log.Printf("service %s is stopped", service.Name())
+		s.logger.Printf("service %s is stopped", service.Name())
 	}
 }
