@@ -30,6 +30,9 @@ type Starter interface {
 	// Done
 	Done() <-chan struct{}
 
+	// Stop ...
+	Stop() Starter
+
 	// Wait ...
 	Wait(ctx *cli.Context) Starter
 
@@ -188,6 +191,11 @@ func (s *starter) signals(signals ...os.Signal) {
 
 func (s *starter) Done() <-chan struct{} {
 	return s.context.Done()
+}
+
+func (s *starter) Stop() Starter {
+	s.cancel()
+	return s
 }
 
 func (s *starter) Wait(ctx *cli.Context) Starter {
